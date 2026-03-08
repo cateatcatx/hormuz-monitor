@@ -2,7 +2,7 @@ name: Update Hormuz Data
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # 每天 UTC 6:00（北京14:00）
+    - cron: '0 2,10,18 * * *'  # 每天 UTC 2:00/10:00/18:00（北京 10:00/18:00/02:00）
   workflow_dispatch:       # 支持手动触发
 
 permissions:
