@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>霍尔木兹海峡流量监控</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0e1a;
+    color: #e0e6ed;
+    min-height: 100vh;
+  }
+  .header {
+    background: linear-gradient(135deg, #0d1b2a 0%, #1b2a4a 100%);
+    border-bottom: 1px solid rgba(100, 180, 255, 0.15);
+    padding: 20px 40px;
+  }
+  .header h1 {
+    font-size: 22px; font-weight: 600;
+    background: linear-gradient(90deg, #4fc3f7, #81d4fa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .header .subtitle { font-size: 13px; color: #7a8ba0; margin-top: 4px; }
+
+  .dashboard { padding: 24px 40px; }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px; margin-bottom: 24px;
+  }
+  .stat-card {
+    background: linear-gradient(135deg, #111827 0%, #1a2332 100%);
+    border: 1px solid rgba(100, 180, 255, 0.1);
+    border-radius: 12px; padding: 20px;
+    position: relative; overflow: hidden;
+  }
+  .stat-card::before {
+    content: ''; position: absolute;
+    top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .stat-card .label { font-size: 12px; color: #7a8ba0; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; margin: 8px 0 4px; color: var(--accent); }
+  .stat-card .sub { font-size: 12px; color: #5a6a7a; }
+
+  .chart-container {
+    background: linear-gradient(135deg, #111827 0%, #1a2332 100%);
+    border: 1px solid rgba(100, 180, 255, 0.1);
+    border-radius: 12px; padding: 24px;
+    margin-bottom: 24px;
+  }
+  .chart-header {
+    display: flex; justify-content: space-between;
+    align-items: center; margin-bottom: 16px;
+    flex-wrap: wrap; gap: 8px;
+  }
+  .chart-title { font-size: 16px; font-weight: 600; }
+
+  /* 时间范围按钮组 */
+  .range-btns {
+    display: flex; gap: 4px;
+  }
+  .range-btn {
+    background: rgba(79, 195, 247, 0.08);
+    border: 1px solid rgba(79, 195, 247, 0.15);
+    color: #7a8ba0;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .range-btn:hover {
+    background: rgba(79, 195, 247, 0.15);
+    color: #b0c4de;
+  }
+  .range-btn.active {
+    background: rgba(79, 195, 247, 0.25);
+    border-color: rgba(79, 195, 247, 0.5);
+    color: #4fc3f7;
+  }
+
+  .info-section {
+    background: linear-gradient(135deg, #111827 0%, #1a2332 100%);
+    border: 1px solid rgba(100, 180, 255, 0.1);
+    border-radius: 12px; padding: 24px; margin-bottom: 24px;
+  }
+  .info-section .desc {
+    font-size: 13px; color: #7a8ba0; line-height: 1.8; margin-top: 12px;
+  }
+  .info-section .desc strong { color: #4fc3f7; }
+
+  canvas { max-height: 300px; }
+
+  @media (max-width: 900px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .dashboard { padding: 16px; }
+    .header { padding: 16px; }
+    .range-btns { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>霍尔木兹海峡 · 船舶流量监控</h1>
+  <div class="subtitle">Strait of Hormuz — Daily Vessel Traffic (IMF PortWatch)</div>
+</div>
+
+<div class="dashboard">
+  <!-- 统计卡片 -->
+  <div class="stats-row">
+    <div class="stat-card" style="--accent: #4fc3f7;">
+      <div class="label">数据覆盖天数</div>
+      <div class="value" id="totalDays">—</div>
+      <div class="sub" id="dateRange">加载中...</div>
+    </div>
+    <div class="stat-card" style="--accent: #ffa726;">
+      <div class="label">最近日均通行</div>
+      <div class="value" id="avgRecent">—</div>
+      <div class="sub">近30天日均船舶数</div>
+    </div>
+    <div class="stat-card" style="--accent: #ab47bc;">
+      <div class="label">最近日均油轮</div>
+      <div class="value" id="avgTanker">—</div>
+      <div class="sub">近30天日均油轮数</div>
+    </div>
+    <div class="stat-card" style="--accent: #66bb6a;">
+      <div class="label">最新日通行量</div>
+      <div class="value" id="latestTotal">—</div>
+      <div class="sub" id="latestDate">—</div>
+    </div>
+  </div>
+
+  <!-- 每日通行量曲线图 -->
+  <div class="chart-container">
+    <div class="chart-header">
+      <div class="chart-title">每日船舶通行量</div>
+      <div class="range-btns" id="dailyRange">
+        <button class="range-btn active" data-days="7">1周</button>
+        <button class="range-btn" data-days="30">1月</button>
+        <button class="range-btn" data-days="90">1季度</button>
+        <button class="range-btn" data-days="180">半年</button>
+        <button class="range-btn" data-days="365">1年</button>
+        <button class="range-btn" data-days="0">全部</button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#5a6a7a;margin-bottom:8px;" id="historyRange">加载中...</div>
+    <canvas id="dailyChart"></canvas>
+  </div>
+
+  <!-- 每日按类型曲线图 -->
+  <div class="chart-container">
+    <div class="chart-header">
+      <div class="chart-title">每日船舶通行量（按类型）</div>
+      <div class="range-btns" id="typeRange">
+        <button class="range-btn active" data-days="7">1周</button>
+        <button class="range-btn" data-days="30">1月</button>
+        <button class="range-btn" data-days="90">1季度</button>
+        <button class="range-btn" data-days="180">半年</button>
+        <button class="range-btn" data-days="365">1年</button>
+        <button class="range-btn" data-days="0">全部</button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#5a6a7a;margin-bottom:8px;">数据来源: IMF PortWatch · AIS from MarineTraffic &amp; Spire</div>
+    <canvas id="typeChart"></canvas>
+  </div>
+
+  <!-- 近期通行量柱状图 -->
+  <div class="chart-container">
+    <div class="chart-header">
+      <div class="chart-title">通行量柱状图</div>
+      <div class="range-btns" id="barRange">
+        <button class="range-btn active" data-days="7">1周</button>
+        <button class="range-btn" data-days="14">2周</button>
+        <button class="range-btn" data-days="30">1月</button>
+        <button class="range-btn" data-days="90">1季度</button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#5a6a7a;margin-bottom:8px;" id="recentRange"></div>
+    <canvas id="recentChart"></canvas>
+  </div>
+
+  <!-- 信息 -->
+  <div class="info-section">
+    <div class="chart-title">关于数据源</div>
+    <div class="desc">
+      历史数据来自 <strong>IMF PortWatch</strong> 平台，基于 MarineTraffic 和 Spire Global 的商业 AIS 数据，
+      覆盖全球 28 个海上咽喉要道的每日船舶过境统计。
+      <br>
+      数据托管于联合国人道主义数据交换平台 (HDX)，可免费下载。
+      <br>
+      霍尔木兹海峡正常日均通行约 <strong>85-100 艘</strong>船舶，其中油轮约 <strong>50-65 艘/天</strong>，
+      承载全球约 20% 的石油运输量。
+    </div>
+  </div>
+</div>
+
+<script>
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',');
+  return lines.slice(1).map(line => {
+    const vals = line.split(',');
+    const obj = {};
+    headers.forEach((h, i) => obj[h.trim()] = vals[i] ? vals[i].trim() : '');
+    return obj;
+  });
+}
+
+// 全局数据存储
+let allRows = [];
+let dailyChartInst = null;
+let typeChartInst = null;
+let recentChartInst = null;
+
+function sliceRows(days) {
+  if (days === 0) return allRows;
+  return allRows.slice(-days);
+}
+
+function timeUnit(days) {
+  if (days <= 14) return 'day';
+  if (days <= 90) return 'week';
+  if (days <= 365) return 'month';
+  return 'quarter';
+}
+
+function drawDailyChart(days) {
+  const rows = sliceRows(days);
+  const dates = rows.map(r => new Date(r.date));
+  const totals = rows.map(r => +r.n_total || 0);
+
+  if (dailyChartInst) dailyChartInst.destroy();
+  dailyChartInst = new Chart(document.getElementById('dailyChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [{
+        label: '每日通行船舶',
+        data: totals,
+        borderColor: 'rgba(79, 195, 247, 0.8)',
+        backgroundColor: 'rgba(79, 195, 247, 0.1)',
+        fill: true, tension: 0.2, pointRadius: days <= 30 ? 3 : 0, pointHoverRadius: 4, borderWidth: 1.5,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#7a8ba0', usePointStyle: true } },
+        tooltip: {
+          backgroundColor: 'rgba(17, 24, 39, 0.95)',
+          callbacks: {
+            title: ctx => ctx[0].label.split(',').slice(0,2).join(','),
+            label: ctx => ` ${ctx.raw} 艘`
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time', time: { unit: timeUnit(days || allRows.length), tooltipFormat: 'yyyy-MM-dd' },
+          grid: { color: 'rgba(100, 180, 255, 0.06)' },
+          ticks: { color: '#5a6a7a', maxTicksLimit: 12 }
+        },
+        y: {
+          grid: { color: 'rgba(100, 180, 255, 0.06)' },
+          ticks: { color: '#5a6a7a' }, min: 0
+        }
+      }
+    }
+  });
+}
+
+function drawTypeChart(days) {
+  const rows = sliceRows(days);
+  const dates = rows.map(r => new Date(r.date));
+  const pr = days <= 30 ? 2 : 0;
+
+  if (typeChartInst) typeChartInst.destroy();
+  typeChartInst = new Chart(document.getElementById('typeChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [
+        {
+          label: '油轮 Tanker', data: rows.map(r => +r.n_tanker || 0),
+          borderColor: '#ffa726', backgroundColor: 'rgba(255, 167, 38, 0.08)',
+          fill: true, tension: 0.2, pointRadius: pr, borderWidth: 1.5,
+        },
+        {
+          label: '干散货 Dry Bulk', data: rows.map(r => +r.n_dry_bulk || 0),
+          borderColor: '#4fc3f7', backgroundColor: 'rgba(79, 195, 247, 0.06)',
+          fill: true, tension: 0.2, pointRadius: pr, borderWidth: 1.5,
+        },
+        {
+          label: '集装箱 Container', data: rows.map(r => +r.n_container || 0),
+          borderColor: '#ab47bc', backgroundColor: 'rgba(171, 71, 188, 0.06)',
+          fill: true, tension: 0.2, pointRadius: pr, borderWidth: 1.5,
+        },
+        {
+          label: '其他货船 Cargo', data: rows.map(r => +r.n_cargo || 0),
+          borderColor: '#66bb6a', backgroundColor: 'rgba(102, 187, 106, 0.04)',
+          fill: true, tension: 0.2, pointRadius: pr, borderWidth: 1.2,
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#7a8ba0', usePointStyle: true, padding: 16 } },
+        tooltip: {
+          backgroundColor: 'rgba(17, 24, 39, 0.95)',
+          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.raw} 艘` }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time', time: { unit: timeUnit(days || allRows.length) },
+          grid: { color: 'rgba(100, 180, 255, 0.06)' },
+          ticks: { color: '#5a6a7a', maxTicksLimit: 12 }
+        },
+        y: {
+          grid: { color: 'rgba(100, 180, 255, 0.06)' },
+          ticks: { color: '#5a6a7a' }, min: 0
+        }
+      }
+    }
+  });
+}
+
+function drawBarChart(days) {
+  const rows = sliceRows(days);
+  const dates = rows.map(r => new Date(r.date));
+  const totals = rows.map(r => +r.n_total || 0);
+  const tankers = rows.map(r => +r.n_tanker || 0);
+
+  document.getElementById('recentRange').textContent =
+    `${rows[0].date} — ${rows[rows.length - 1].date} (${rows.length} 天)`;
+
+  if (recentChartInst) recentChartInst.destroy();
+  recentChartInst = new Chart(document.getElementById('recentChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: dates,
+      datasets: [
+        {
+          label: '油轮', data: tankers,
+          backgroundColor: 'rgba(255, 167, 38, 0.7)', borderRadius: 2,
+          stack: 'stack',
+        },
+        {
+          label: '其他船舶', data: totals.map((t, i) => t - tankers[i]),
+          backgroundColor: 'rgba(79, 195, 247, 0.5)', borderRadius: 2,
+          stack: 'stack',
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#7a8ba0', usePointStyle: true } },
+        tooltip: {
+          backgroundColor: 'rgba(17, 24, 39, 0.95)',
+          callbacks: {
+            title: ctx => ctx[0].label.split(',').slice(0,2).join(','),
+            afterBody: (ctx) => {
+              const idx = ctx[0].dataIndex;
+              return `  总计: ${totals[idx]} 艘`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time', time: { unit: days <= 30 ? 'day' : 'week', tooltipFormat: 'yyyy-MM-dd' },
+          grid: { color: 'rgba(100, 180, 255, 0.06)' },
+          ticks: { color: '#5a6a7a', maxTicksLimit: 15 },
+          stacked: true,
+        },
+        y: {
+          grid: { color: 'rgba(100, 180, 255, 0.06)' },
+          ticks: { color: '#5a6a7a' }, min: 0, stacked: true,
+        }
+      }
+    }
+  });
+}
+
+// 按钮组绑定
+function setupRangeBtns(containerId, drawFn) {
+  const container = document.getElementById(containerId);
+  container.addEventListener('click', (e) => {
+    const btn = e.target.closest('.range-btn');
+    if (!btn) return;
+    container.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    drawFn(+btn.dataset.days);
+  });
+}
+
+async function loadIMFData() {
+  try {
+    const res = await fetch('data/hormuz-daily.csv');
+    if (!res.ok) throw new Error('CSV 加载失败 (' + res.status + ')');
+    allRows = parseCSV(await res.text());
+    if (allRows.length === 0) return;
+
+    const first = allRows[0].date, last = allRows[allRows.length - 1].date;
+
+    // 统计卡片
+    document.getElementById('totalDays').textContent = allRows.length;
+    document.getElementById('dateRange').textContent = `${first} — ${last}`;
+    document.getElementById('historyRange').textContent =
+      `${first} — ${last} (${allRows.length} 天) · IMF PortWatch`;
+
+    const recent30 = allRows.slice(-30);
+    const avg30 = Math.round(recent30.reduce((s, r) => s + (+r.n_total || 0), 0) / recent30.length);
+    const avgT30 = Math.round(recent30.reduce((s, r) => s + (+r.n_tanker || 0), 0) / recent30.length);
+    document.getElementById('avgRecent').textContent = avg30;
+    document.getElementById('avgTanker').textContent = avgT30;
+
+    const lastRow = allRows[allRows.length - 1];
+    document.getElementById('latestTotal').textContent = lastRow.n_total;
+    document.getElementById('latestDate').textContent = lastRow.date;
+
+    // 初始绘制
+    drawDailyChart(7);
+    drawTypeChart(7);
+    drawBarChart(7);
+
+    // 绑定按钮事件
+    setupRangeBtns('dailyRange', drawDailyChart);
+    setupRangeBtns('typeRange', drawTypeChart);
+    setupRangeBtns('barRange', drawBarChart);
+
+  } catch (e) {
+    document.getElementById('historyRange').textContent = '数据加载失败: ' + e.message;
+  }
+}
+
+loadIMFData();
+</script>
+</body>
+</html>

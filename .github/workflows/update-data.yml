@@ -1,0 +1,37 @@
+name: Update Hormuz Data
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 每天 UTC 6:00（北京14:00）
+  workflow_dispatch:       # 支持手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download IMF PortWatch CSV
+        run: |
+          curl -L -o /tmp/full.csv \
+            "https://data.humdata.org/dataset/91d28bb8-986d-430c-961c-6a24ecbd66ee/resource/cbd17f06-8ab2-4ba4-a666-f7a4bcc9ea3f/download/daily-chokepoint-transit-calls-and-shipment-volume-estimates.csv"
+
+      - name: Extract Hormuz data
+        run: |
+          echo "date,n_container,n_dry_bulk,n_general_cargo,n_roro,n_tanker,n_cargo,n_total,capacity" > data/hormuz-daily.csv
+          awk -F',' 'NR>1 && $5=="chokepoint6" {
+            split($1, d, " ");
+            print d[1]","$7","$8","$9","$10","$11","$12","$13","$18
+          }' /tmp/full.csv | sort >> data/hormuz-daily.csv
+          echo "Lines: $(wc -l < data/hormuz-daily.csv)"
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/hormuz-daily.csv
+          git diff --cached --quiet || git commit -m "data: update $(date -u +%Y-%m-%d)"
+          git push
